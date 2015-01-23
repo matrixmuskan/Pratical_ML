@@ -1,0 +1,98 @@
+---
+Prediction Using Human Activity Recognization
+---
+#Introduction
+The studies of human activity recognition in recent times have quantified how much an activity is done by individuals relative of other types of activities. These activity involve running and walking etc. In this work, I have used the dataset collected by [Velloso et al.,2013]( http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf) to predict the quality of an executing activity. This study was based on asking series of participants to perform one set of 10 repetetions of Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). The target variable would be 'classe; as provided in the databset. 
+
+#Data cleaning & Exploratory Analysis
+**Removing summary instance**
+From the first look of the data, it seems, the training data have been summaized by a predictor variable **new_window = yes** for which there were summaries of skewness and kurtosis, for the rest of the data, these predictor variables were NA, so these instances were removed from the data. 
+
+**Removing unimportant predictors**
+To build the model, it is very necessary to do a feature selection method, intially, the predictor variable of username and timestamps were removed from the predictor variables, then I ran the **nearZeroVar** function to remove the predictor variable which had no signficant variance after which the function **findCorrelation** function were runned to find the correlated predictors. Using these filters, we selected the predictor which were uncorrelated ( cutoff < 0.95) and had some variance. THe prediction pool then consisted of 50 variables including the target variable 'classe'.   
+
+```{r,echo=FALSE}
+library(knitr);library(ggplot2)
+suppressMessages(suppressWarnings(library(caret)))
+library(reshape2)
+suppressMessages(suppressWarnings(library(foreach)))
+set.seed(100)
+```
+```{r,cache=TRUE}
+data = read.csv('pml-training.csv',header = TRUE)
+data = data.frame(data, row.names = 1)
+idx = which(data$new_window == 'yes') 
+data = data[-idx, ];data = data[,-seq(1,6)]
+data = data[, -nearZeroVar((data))]
+data = data[,-findCorrelation(cor(as.matrix(data[,-ncol(data)])),cutoff = 0.95)]
+```
+
+#Model Building
+
+After cleaning the dataset, the data have been divided into 75% training and 25% as validation. Different models will be built on the training and best model would be choosen according to their performance in the validation test. The model with the highest accuracy on the validation set will be deployed and tested on test set of 20 instances given in the project. We tried three different types of models. For training purposes, train() method have been used under caret package in R. The trainControl method have been used to optimize the model in the training set which use simple bootstrap resampling. 
+
+```{r,cache=TRUE}
+inTrain = createDataPartition(y = data$classe, p = 0.75, list = FALSE) 
+training = data[inTrain,]
+validation = data[-inTrain,]
+```
+
+**Principal component analysis**
+The first two principal component only explains ~30% of the variance. 
+```{r,fig.height=5,fig.width=10,cache=TRUE}
+prin = princomp(as.matrix(training[,-ncol(training)]),cor = T)
+plot(prin,type = 'l',main = 'Principal Component Analysis',cex = 1,lwd = 2)
+```
+
+**Machine Learning Models**
+```{r,eval=FALSE}
+rf_model = train(classe ~ . , data = training, method = 'rf')
+tree_model = train(classe ~ . , data = training, method = 'rpart')
+glm_model = train(classe ~ . , data = training, method = 'lda')
+```
+
+I am showing results for three models for this analysis. Although I tried boosting and logistic regression but these were computationally expensive and didnt finish overnight on my computer. They are following models which performed in the reasonable time are  
+
+
+**Random Forest**
+It was computational expensive and took about 2 hours to run on my computer. The number of trees was 500 and no. of variables at each split was 25. The Out of bag error was only 0.58% and prediction on validation set was **99.5%**
+
+```{r}
+load('rf_model.RData')
+suppressMessages(suppressWarnings(confusionMatrix(predict(rf_model,newdata = validation), validation$classe)$overall[1]))
+```
+
+** Tree model C4.5 **
+It was computational fast but accuracy in the validation set was 49%. 
+
+```{r}
+load('tree_model.RData')
+suppressMessages(suppressWarnings(confusionMatrix(predict(tree_model,newdata = validation), validation$classe)$overall[1]))
+```
+
+**LDA Classification**
+It was computational fast but accuracy in the validation set was only 68%
+
+```{r}
+load('glm_model.RData')
+suppressMessages(suppressWarnings(confusionMatrix(predict(glm_model,newdata = validation), validation$classe)$overall[1]))
+```
+
+**Variable importance**
+After doing variance importance in the model, yaw_belt, pitch_forearm, pitch_belt, magnet_dumbell_z and magnet_dumbell_y seemed to be the most important ones with importance > 50. 
+
+```{r,fig.height=10,fig.width=5}
+plot(varImp(rf_model))
+```
+
+#Prediting the test case
+Random forest model is then use to predict the test cases which yield in 100% accuracy as per evaluation from the project. 
+```{r}
+test_data = read.csv('pml-testing.csv',header = TRUE)
+test_data = data.frame(test_data, row.names = 1)
+answers  = predict(rf_model,newdata = test_data)
+answers
+```
+
+#Conclusion
+In this study, I have used the activity dataset to predict the qunatified level of an activity (class A-E) based on 49 predictors out of 156 after performing feature selection. In this analysis, random forest method was choosen since it outperformed LDA and tree methods in the validation set. The out of bag error was also < 1%. From the variable importance metrics, it is clear that pitch_forearm,pitch_belt, magnet_dumbell in y/z direction and yaw_blet were the most important predictors. 
